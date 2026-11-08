@@ -16,7 +16,7 @@ await db.exec(`
   grant usage on schema auth to anon, authenticated;
   grant execute on function auth.uid() to anon, authenticated;
 `)
-for (const f of ['0001_community.sql', '0002_follower_check.sql', '0003_guild.sql', '0004_cloud_save.sql', '0005_cloud_slots.sql', '0006_more_accessories.sql']) await db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'))
+for (const f of ['0001_community.sql', '0002_follower_check.sql', '0003_guild.sql', '0004_cloud_save.sql', '0005_cloud_slots.sql', '0006_more_accessories.sql', '0007_player_accounts.sql']) await db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'))
 // Supabase grants table privileges to these roles by default; RLS is what must block them
 await db.exec(`grant usage on schema public to anon, authenticated;
   grant select, insert, update, delete on all tables in schema public to anon, authenticated;`)
@@ -225,6 +225,34 @@ await fails(FOLLOWER, 'select public.cloud_save_history(1)', [], 'not_guild_mast
 await fails(FOLLOWER, 'select public.cloud_save_slots()', [], 'not_guild_master')
 assert.equal((await as(GM, 'select * from public.game_save_versions')).length, 0, 'versions are closed to everyone too')
 console.log('cloud save database ok')
+
+// player login accounts (username + PIN) written by the Guild Master after a follower upload
+const UPS = 'select public.admin_upsert_player_accounts($1) as n'
+const acc = (instagram: string, pin: string, extra: Record<string, unknown> = {}) => ({ instagram, displayName: 'Mage', pin, cls: 'Mage', classLocked: false, follows: true, xp: 45, gold: 100, inventory: [], ...extra })
+await fails(FOLLOWER, UPS, [JSON.stringify([acc('fan.one', '123456')])], 'not_guild_master')
+await fails(null, UPS, [JSON.stringify([acc('fan.one', '123456')])], 'permission denied')
+assert.equal((await as<{ n: number }>(GM, UPS, [JSON.stringify([acc('@Fan.One', '123456'), acc('fan_two', '654321'), acc('bad..name', '111111')])]))[0].n, 2, 'invalid usernames are skipped')
+await fails(GM, UPS, [JSON.stringify([acc('fan.three', '12ab')])], 'player_accounts_pin_check')
+const LOGIN = 'select public.player_login($1, $2) as r'
+const login = async (ig: string, pin: string) => (await as<{ r: Record<string, unknown> }>(null, LOGIN, [ig, pin]))[0].r
+assert.equal((await login('fan.one', '123456')).cls, 'Mage', 'a signed-out player logs in with username + PIN')
+assert.equal((await login('fan.one', '000000')).error, 'wrong_pin')
+assert.equal((await login('nobody.here', '123456')).error, 'not_registered')
+assert.equal((await as(FOLLOWER, 'select * from public.player_accounts')).length, 0, 'accounts are not readable directly')
+await fails(FOLLOWER, 'select public.admin_list_player_accounts()', [], 'not_guild_master')
+// progress made in-game is kept when the GM re-uploads; a new PIN resets the lockout
+await db.exec(`update public.player_accounts set xp = 500 where instagram = 'fan.one'`)
+await as(GM, UPS, [JSON.stringify([acc('fan.one', '999999', { follows: false })])])
+assert.equal((await login('fan.one', '999999')).error, 'not_following')
+await as(GM, UPS, [JSON.stringify([acc('fan.one', '999999')])])
+assert.equal((await login('fan.one', '999999')).xp, 500, 'progress survives a re-upload')
+for (let i = 0; i < 10; i++) await login('fan_two', '000000')
+assert.equal((await login('fan_two', '654321')).error, 'too_many_attempts', '10 wrong PINs lock the account')
+const accList = (await as<{ r: { instagram: string; pin: string }[] }>(GM, 'select public.admin_list_player_accounts() as r'))[0].r
+assert.deepEqual(accList.map((a) => a.instagram).sort(), ['fan.one', 'fan_two'])
+await as(GM, 'select public.admin_remove_player_account($1)', ['@fan_two'])
+assert.equal((await login('fan_two', '654321')).error, 'not_registered')
+console.log('player accounts database ok')
 
 const audit = await db.query<{ action: string }>('select action from public.audit_log order by id')
 console.log('database ok · audit trail:', audit.rows.map((r) => r.action).join(', '))

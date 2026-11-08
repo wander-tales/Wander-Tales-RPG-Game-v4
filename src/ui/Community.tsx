@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getBackend, type CommunityResident, type FollowerListInfo, type Registration } from '../backend'
+import { backendMode, errorText, getBackend, type CommunityResident, type FollowerListInfo, type Registration } from '../backend'
 import { PERSONALITIES, randomAppearance } from '../game/avatar'
 import { applyMembers, community, getVillagePopulation, setFollowerCount, setPlaceholders } from '../game/community'
 import { hashHandle, parseFollowerExport } from '../game/followers'
@@ -9,6 +9,7 @@ import {
   getPlayerAccounts,
   getPlayerTotalStats,
   getUploadedFollowersMeta,
+  mergePlayerAccounts,
   regeneratePlayerPin,
   registerPlayerPin,
   removePlayerAccount,
@@ -23,6 +24,17 @@ import { AvatarEditor, AvatarPreview } from './AvatarEditor'
 type Tab = 'pins' | 'pending' | 'residents' | 'add'
 
 const DM_GUILD_HANDLE = 'wandertales.guild'
+
+/** Write player accounts (username + PIN) to the database so players can log in from any device. */
+async function pushAccounts(accounts: PlayerAccount[]) {
+  if (!accounts.length) return
+  try {
+    const b = await getBackend()
+    await b.savePlayerAccounts(accounts)
+  } catch (err) {
+    useGame.getState().notify(`⚠️ Akun belum tersimpan ke database: ${errorText(err)}`)
+  }
+}
 
 export function CommunityPanel({ close }: { close: () => void }) {
   useGame((s) => s.rev)
@@ -57,6 +69,10 @@ export function CommunityPanel({ close }: { close: () => void }) {
       setPendingRegs(p)
       setMembers(m)
       setBackendFollowerInfo(fInfo)
+      if (backendMode === 'supabase') {
+        const remote = await b.listPlayerAccounts().catch(() => null)
+        if (remote) setAccounts(mergePlayerAccounts(remote))
+      }
       applyMembers(m)
       useGame.setState((s) => ({ rev: s.rev + 1 }))
     } catch {
@@ -95,25 +111,31 @@ export function CommunityPanel({ close }: { close: () => void }) {
         return
       }
 
-      // Sync to backend (Supabase or local) via SHA-256 hashes
-      const hashes = await Promise.all([...combinedHandles].map((h) => hashHandle(h)))
-      try {
-        const b = await getBackend()
-        await b.setFollowers(hashes)
-      } catch {
-        /* local fallback continues */
-      }
-
-      // Sync with Player PIN accounts & village capacity
+      // Sync with Player PIN accounts & village capacity (this browser)
       const syncRes = syncFollowersListWithAccounts(combinedHandles, autoPinForFollowers)
       setFollowerCount(syncRes.totalFollowers)
       setFollowerInput(String(syncRes.totalFollowers))
       refreshAccounts()
+
+      // Save to the database: follower list (SHA-256 hashes) + player accounts with PINs
+      const b = await getBackend()
+      let dbError: unknown = null
+      try {
+        const hashes = await Promise.all([...combinedHandles].map((h) => hashHandle(h)))
+        await b.setFollowers(hashes)
+        await b.savePlayerAccounts(getPlayerAccounts())
+      } catch (err) {
+        dbError = err
+      }
       await refreshBackend()
 
-      g.notify(
-        `✅ ${syncRes.totalFollowers} Followers IG berhasil diupload! (${syncRes.newlyCreated} PIN baru dibuat)`,
-      )
+      if (dbError) {
+        g.notify(`⚠️ ${syncRes.totalFollowers} followers terbaca, tapi GAGAL disimpan ke database: ${errorText(dbError)}`)
+      } else {
+        g.notify(
+          `✅ ${syncRes.totalFollowers} Followers IG tersimpan ke database${b.mode === 'local' ? ' (lokal)' : ''}! (${syncRes.newlyCreated} PIN baru dibuat)`,
+        )
+      }
     } catch (err) {
       g.notify(`⚠️ Gagal membaca file followers: ${(err as Error)?.message ?? String(err)}`)
     } finally {
@@ -158,6 +180,7 @@ export function CommunityPanel({ close }: { close: () => void }) {
     } catch {
       /* already exists in resident list */
     }
+    await pushAccounts([res.account])
     refreshAccounts()
     setNewIg('')
     setNewDisplayName('')
@@ -373,6 +396,8 @@ export function CommunityPanel({ close }: { close: () => void }) {
                       type="button"
                       onClick={() => {
                         const nextPin = regeneratePlayerPin(acc.instagram)
+                        const updated = getPlayerAccounts().find((a) => a.instagram === acc.instagram)
+                        if (updated) void pushAccounts([updated])
                         refreshAccounts()
                         if (nextPin) g.notify(`PIN baru @${acc.instagram}: ${nextPin}`)
                       }}
@@ -398,6 +423,9 @@ export function CommunityPanel({ close }: { close: () => void }) {
                       type="button"
                       onClick={() => {
                         removePlayerAccount(acc.instagram)
+                        getBackend()
+                          .then((b) => b.removePlayerAccount(acc.instagram))
+                          .catch((err) => g.notify(`⚠️ Gagal menghapus dari database: ${errorText(err)}`))
                         refreshAccounts()
                         useGame.setState((s) => ({ rev: s.rev + 1 }))
                         g.notify(`Akun @${acc.instagram} dihapus dari database login.`)
@@ -431,6 +459,7 @@ export function CommunityPanel({ close }: { close: () => void }) {
                       const b = await getBackend()
                       await b.review(reg.id, true)
                       const pinRes = registerPlayerPin(reg.instagram, reg.displayName, 'Warrior')
+                      if (pinRes.account) await pushAccounts([pinRes.account])
                       await refreshBackend()
                       refreshAccounts()
                       g.notify(
@@ -537,6 +566,7 @@ function AddResidentForm({ onDone }: { onDone: () => void }) {
           if (ig.trim()) {
             const reg = registerPlayerPin(ig, name.trim(), cls)
             if (reg.ok && reg.account) {
+              await pushAccounts([reg.account])
               g.notify(`✅ ${name.trim()} ditambahkan! PIN Login (@${reg.account.instagram}): ${reg.account.pin}`)
               onDone()
               return

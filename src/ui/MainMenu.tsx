@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useGame } from '../game/store'
-import { verifyPlayerLogin, verifyGmLogin } from '../game/playerAuthAndQuests'
+import { findPlayerAccount, upsertPlayerAccount, verifyPlayerLogin, verifyGmLogin, type PlayerAccount } from '../game/playerAuthAndQuests'
 import { backendMode, errorText, getBackend } from '../backend'
 
 export function MainMenu() {
@@ -22,15 +22,38 @@ export function MainMenu() {
 
   if (screen !== 'menu') return null
 
-  const handlePlayerLogin = (e: React.FormEvent) => {
+  const handlePlayerLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setErrorMsg(null)
-    const res = verifyPlayerLogin(igUsername, pin)
-    if (!res.ok || !res.account) {
-      setErrorMsg(res.error ?? 'Gagal login.')
-      return
+    let acc: PlayerAccount
+    if (backendMode === 'supabase') {
+      // accounts live in the database, so players can log in from any device
+      if (!/^\d{6}$/.test(pin.trim())) {
+        setErrorMsg('PIN harus berupa 6 digit angka dari balasan DM @wandertales.guild.')
+        return
+      }
+      setBusy(true)
+      try {
+        const b = await getBackend()
+        acc = await b.playerLogin(igUsername, pin.trim())
+      } catch (err) {
+        setErrorMsg(errorText(err))
+        return
+      } finally {
+        setBusy(false)
+      }
+      const local = findPlayerAccount(acc.instagram)
+      // keep progress made on this device if it is ahead of the database copy
+      if (local && local.xp > acc.xp) acc = { ...acc, xp: local.xp, gold: local.gold, inventory: local.inventory }
+      upsertPlayerAccount(acc)
+    } else {
+      const res = verifyPlayerLogin(igUsername, pin)
+      if (!res.ok || !res.account) {
+        setErrorMsg(res.error ?? 'Gagal login.')
+        return
+      }
+      acc = res.account
     }
-    const acc = res.account
     const defaultPlayerName = acc.displayName && acc.displayName !== 'Guild Master' ? acc.displayName : acc.cls
     loginAsPlayer({ ...acc, displayName: defaultPlayerName })
   }

@@ -1,7 +1,7 @@
 // Supabase backend. Uses only the public anon key; every privileged rule is enforced by the
 // SQL functions in supabase/migrations (RLS + SECURITY DEFINER), never by this file.
 import { createClient } from '@supabase/supabase-js'
-import type { Backend, CloudSave, CloudSlotInfo, CloudVersion, CloudWrite, CommunityResident, Entry, GuildMember, RecruitEvent, Registration } from './types'
+import type { Backend, CloudSave, CloudSlotInfo, CloudVersion, CloudWrite, CommunityResident, Entry, GuildMember, PlayerAccount, RecruitEvent, Registration } from './types'
 
 type Row = Record<string, unknown>
 const toRegistration = (r: Row): Registration => ({
@@ -55,6 +55,23 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
       return rows[0] ? { uploadedAt: rows[0].uploaded_at as string, count: rows[0].follower_count as number } : null
     },
     async setFollowers(hashes) { return rpc<number>('admin_set_followers', { p_hashes: hashes }) },
+    async listPlayerAccounts() {
+      return (await rpc<Omit<PlayerAccount, 'online'>[]>('admin_list_player_accounts')).map((a) => ({ ...a, online: false }))
+    },
+    async savePlayerAccounts(accounts) {
+      // sent in chunks so a big follower list stays under the request size limit
+      let n = 0
+      for (let i = 0; i < accounts.length; i += 2000) {
+        n += await rpc<number>('admin_upsert_player_accounts', { p_rows: accounts.slice(i, i + 2000) })
+      }
+      return n
+    },
+    async removePlayerAccount(instagram) { await rpc('admin_remove_player_account', { p_instagram: instagram }) },
+    async playerLogin(instagram, pin) {
+      const r = await rpc<(Omit<PlayerAccount, 'online'> & { error?: string })>('player_login', { p_instagram: instagram, p_pin: pin })
+      if (r.error) throw new Error(r.error)
+      return { ...r, online: true }
+    },
     async listGuildMembers() {
       return (await rpc<Row[]>('list_guild_members')).map((r): GuildMember => ({
         id: r.id as string, residentId: r.resident_id as string, displayName: r.display_name as string, rank: r.rank as number,

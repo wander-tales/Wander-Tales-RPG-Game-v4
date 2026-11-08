@@ -2,6 +2,7 @@
 // Clearly labelled "Local dev" in the UI. Not shared between devices and not secure — never use it live.
 import { normalizeInstagram, validAppearance, validName, PERSONALITIES } from '../game/avatar.ts'
 import { hashHandle } from '../game/followers.ts'
+import { getPlayerAccounts, removePlayerAccount, verifyPlayerLogin } from '../game/playerAuthAndQuests.ts'
 import { RANKS, rankFor, rankName, scoreEntries, validPostUrl, type CommentRow, type Entry, type GuildClass, type RecruitEvent } from '../game/recruitment.ts'
 import { CLOUD_HISTORY, CLOUD_SLOTS, type Backend, type CloudSave, type CommunityResident, type ImportResult, type Registration, type RegistrationInput } from './types.ts'
 
@@ -234,6 +235,15 @@ export const localBackend: Backend = {
     s.followers = { hashes: [...new Set(hashes)], uploadedAt: new Date().toISOString() }
     write(s)
     return s.followers.hashes.length
+  },
+  // player accounts already live in this browser's storage in local mode
+  async listPlayerAccounts() { return getPlayerAccounts() },
+  async savePlayerAccounts(accounts) { return accounts.length },
+  async removePlayerAccount(instagram) { removePlayerAccount(instagram) },
+  async playerLogin(instagram, pin) {
+    const r = verifyPlayerLogin(instagram, pin)
+    if (!r.ok || !r.account) throw new Error(r.error ?? 'wrong_pin')
+    return r.account
   },
   // in local mode the person at the keyboard is the Guild Master
   async session() { return { signedIn: true, email: null, isGuildMaster: true } },
