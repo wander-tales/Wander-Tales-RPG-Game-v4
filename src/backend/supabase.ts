@@ -90,7 +90,15 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
     cloudHistory: (slot) => rpc<CloudVersion[]>('cloud_save_history', { p_slot: slot }),
     async authenticatePlayer(instagram, pin): Promise<PlayerIdentity> {
       const { data, error } = await sb.functions.invoke('player-auth', { body: { instagram, pin } })
-      if (error) throw new Error(error.message)
+      if (error) {
+        let message = error.message
+        try {
+          const response = (error as { context?: Response }).context
+          const details = response ? await response.clone().json() as { error?: string } : null
+          if (details?.error) message = details.error
+        } catch { /* use the SDK error message */ }
+        throw new Error(message)
+      }
       if (!data?.token_hash || !data?.player) throw new Error(data?.error ?? 'Login pemain gagal.')
       const { error: verifyError } = await sb.auth.verifyOtp({ token_hash: data.token_hash, type: 'magiclink' })
       if (verifyError) throw new Error(verifyError.message)
