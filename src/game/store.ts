@@ -12,6 +12,7 @@ import {
   type PlayerInventoryItem,
   type QuestObjectiveType,
 } from './playerAuthAndQuests.ts'
+import { cloudPlayerLogout, cloudPlayerSave } from './playerCloud.ts'
 
 export type CameraMode = 'iso' | 'third'
 export type UserRole = 'gm' | 'player'
@@ -108,6 +109,7 @@ interface GameState {
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
+let cloudSaveTimer: ReturnType<typeof setTimeout> | undefined
 const initialClass = loadClass()
 const rawSavedName = load('wt.name')
 const initialName = rawSavedName && rawSavedName !== 'Guild Master' ? rawSavedName : initialClass
@@ -123,20 +125,39 @@ function syncAccountProgress(state: {
   playerXp: number
   playerGold: number
   playerInventory: PlayerInventoryItem[]
+  classQuests?: ClassQuest[]
+  completedQuestsCount?: number
 }) {
   if (!state.loggedInstagram) return
   const acc = findPlayerAccount(state.loggedInstagram)
-  if (!acc) return
-  upsertPlayerAccount({
-    ...acc,
-    displayName: state.playerName || acc.cls,
-    cls: state.playerClass,
+  if (acc) {
+    upsertPlayerAccount({
+      ...acc,
+      displayName: state.playerName || acc.cls,
+      cls: state.playerClass,
+      classLocked: state.classLocked,
+      xp: state.playerXp,
+      gold: state.playerGold,
+      inventory: state.playerInventory,
+      online: true,
+    })
+  }
+
+  // Debounce cloud writes so combat and quest progress do not flood the database.
+  clearTimeout(cloudSaveTimer)
+  const snapshot = {
+    playerName: state.playerName,
+    playerClass: state.playerClass,
     classLocked: state.classLocked,
     xp: state.playerXp,
     gold: state.playerGold,
     inventory: state.playerInventory,
-    online: true,
-  })
+    quests: state.classQuests ?? [],
+    completedQuestsCount: state.completedQuestsCount ?? 0,
+  }
+  cloudSaveTimer = setTimeout(() => {
+    void cloudPlayerSave(snapshot).catch((error) => console.warn('[WanderTales] Cloud save failed:', error))
+  }, 700)
 }
 
 export const useGame = create<GameState>((set, get) => ({
@@ -196,8 +217,8 @@ export const useGame = create<GameState>((set, get) => ({
       playerHp: info.maxHp,
       playerGold: account.gold ?? 100,
       playerInventory: account.inventory?.length ? account.inventory : starterInventoryForClass(account.cls),
-      classQuests: buildQuestsForClassAndLevel(account.cls, info.level, 0),
-      completedQuestsCount: 0,
+      classQuests: account.questState?.length ? account.questState : buildQuestsForClassAndLevel(account.cls, info.level, 0),
+      completedQuestsCount: account.completedQuestsCount ?? 0,
       timeScale: 2, // Fast-forward disabled in Player mode
       mode: 'third',
       selection: null,
@@ -282,6 +303,7 @@ export const useGame = create<GameState>((set, get) => ({
 
   logoutToMenu: () => {
     const s = get()
+    void cloudPlayerLogout().catch((error) => console.warn('[WanderTales] Cloud logout failed:', error))
     if (s.loggedInstagram) {
       const acc = findPlayerAccount(s.loggedInstagram)
       if (acc) upsertPlayerAccount({ ...acc, online: false })
@@ -464,6 +486,7 @@ export const useGame = create<GameState>((set, get) => ({
       return { ...q, progress: nextProg }
     })
     set({ classQuests: nextQuests })
+    syncAccountProgress({ ...get(), classQuests: nextQuests })
     if (anyCompletedNow) {
       get().notify(`✅ Misi Selesai: "${completedTitle}"! Buka menu Misi untuk klaim hadiah.`)
     }

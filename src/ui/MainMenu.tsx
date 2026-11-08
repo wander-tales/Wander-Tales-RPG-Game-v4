@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useGame } from '../game/store'
 import { findPlayerAccount, upsertPlayerAccount, verifyPlayerLogin, verifyGmLogin, type PlayerAccount } from '../game/playerAuthAndQuests'
 import { backendMode, errorText, getBackend } from '../backend'
+import { cloudPlayerLogin } from '../game/playerCloud'
 
 export function MainMenu() {
   const screen = useGame((s) => s.screen)
@@ -27,31 +28,41 @@ export function MainMenu() {
     setErrorMsg(null)
     let acc: PlayerAccount
     if (backendMode === 'supabase') {
-      // accounts live in the database, so players can log in from any device
       if (!/^\d{6}$/.test(pin.trim())) {
         setErrorMsg('PIN harus berupa 6 digit angka dari balasan DM @wandertales.guild.')
         return
       }
       setBusy(true)
       try {
+        // 1) accounts made by the DM bot / GM upload (player_accounts)
         const b = await getBackend()
         acc = await b.playerLogin(igUsername, pin.trim())
+        const local = findPlayerAccount(acc.instagram)
+        // keep progress made on this device if it is ahead of the database copy
+        if (local && local.xp > acc.xp) acc = { ...acc, xp: local.xp, gold: local.gold, inventory: local.inventory }
+        upsertPlayerAccount(acc)
       } catch (err) {
-        // account not in the database yet but made in this browser: let it in locally
         const msg = err instanceof Error ? err.message : String(err)
-        const localRes = /not_registered|function|fetch/i.test(msg) ? verifyPlayerLogin(igUsername, pin) : null
-        if (!localRes?.ok || !localRes.account) {
+        if (!/not_registered|function|fetch/i.test(msg)) {
           setErrorMsg(errorText(err))
+          setBusy(false)
           return
         }
-        acc = localRes.account
-      } finally {
-        setBusy(false)
+        try {
+          // 2) approved residents with a cloud profile (player-auth)
+          acc = await cloudPlayerLogin(igUsername, pin.trim())
+        } catch (cloudErr) {
+          // 3) accounts that only exist in this browser
+          const localRes = verifyPlayerLogin(igUsername, pin)
+          if (!localRes.ok || !localRes.account) {
+            setErrorMsg(errorText(/not_registered/.test(msg) ? err : cloudErr))
+            setBusy(false)
+            return
+          }
+          acc = localRes.account
+        }
       }
-      const local = findPlayerAccount(acc.instagram)
-      // keep progress made on this device if it is ahead of the database copy
-      if (local && local.xp > acc.xp) acc = { ...acc, xp: local.xp, gold: local.gold, inventory: local.inventory }
-      upsertPlayerAccount(acc)
+      setBusy(false)
     } else {
       const res = verifyPlayerLogin(igUsername, pin)
       if (!res.ok || !res.account) {
@@ -143,8 +154,8 @@ export function MainMenu() {
 
             {errorMsg && <div className="login-error">⚠️ {errorMsg}</div>}
 
-            <button type="submit" className="login-submit-btn">
-              ⚔️ Masuk Dunia
+            <button type="submit" className="login-submit-btn" disabled={busy}>
+              {busy ? 'Memverifikasi...' : '⚔️ Masuk Dunia'}
             </button>
 
             <div className="dm-daftar-compact">
