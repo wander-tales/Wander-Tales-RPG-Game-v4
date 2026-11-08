@@ -22,17 +22,36 @@ export function MainMenu() {
 
   if (screen !== 'menu') return null
 
-  const handlePlayerLogin = (e: React.FormEvent) => {
+  const handlePlayerLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setErrorMsg(null)
-    const res = verifyPlayerLogin(igUsername, pin)
-    if (!res.ok || !res.account) {
-      setErrorMsg(res.error ?? 'Gagal login.')
-      return
+    setBusy(true)
+    try {
+      if (backendMode === 'supabase') {
+        const identity = await (await getBackend()).authenticatePlayer(igUsername, pin)
+        const existing = findPlayerAccount(identity.instagram)
+        const account = existing ?? {
+          instagram: identity.instagram, displayName: identity.displayName, pin: '', cls: 'Warrior' as const,
+          classLocked: false, follows: true, online: true, xp: 45, gold: 100,
+          inventory: starterInventoryForClass('Warrior'), createdAt: new Date().toISOString(),
+        }
+        const defaultPlayerName = identity.displayName || account.displayName || account.cls
+        loginAsPlayer({ ...account, instagram: identity.instagram, displayName: defaultPlayerName, pin: '', online: true })
+      } else {
+        const res = verifyPlayerLogin(igUsername, pin)
+        if (!res.ok || !res.account) {
+          setErrorMsg(res.error ?? 'Gagal login.')
+          return
+        }
+        const acc = res.account
+        const defaultPlayerName = acc.displayName && acc.displayName !== 'Guild Master' ? acc.displayName : acc.cls
+        loginAsPlayer({ ...acc, displayName: defaultPlayerName })
+      }
+    } catch (err) {
+      setErrorMsg(errorText(err))
+    } finally {
+      setBusy(false)
     }
-    const acc = res.account
-    const defaultPlayerName = acc.displayName && acc.displayName !== 'Guild Master' ? acc.displayName : acc.cls
-    loginAsPlayer({ ...acc, displayName: defaultPlayerName })
   }
 
   const handleGmLogin = async (e: React.FormEvent) => {
@@ -114,8 +133,8 @@ export function MainMenu() {
 
             {errorMsg && <div className="login-error">⚠️ {errorMsg}</div>}
 
-            <button type="submit" className="login-submit-btn">
-              ⚔️ Masuk Dunia
+            <button type="submit" className="login-submit-btn" disabled={busy}>
+              {busy ? 'Memverifikasi...' : '⚔️ Masuk Dunia'}
             </button>
 
             <div className="dm-daftar-compact">
@@ -123,6 +142,7 @@ export function MainMenu() {
               <a href="https://instagram.com/wandertales.guild" target="_blank" rel="noreferrer">
                 @wandertales.guild
               </a>
+              <p>Kamu lupa PIN? Kirim <b className="dm-code">LUPA PIN</b> melalui DM Instagram yang sama.</p>
             </div>
           </form>
         ) : (
