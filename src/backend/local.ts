@@ -236,7 +236,8 @@ export const localBackend: Backend = {
     return s.followers.hashes.length
   },
   // in local mode the person at the keyboard is the Guild Master
-  async authenticatePlayer() { throw new Error('Login PIN Instagram hanya tersedia saat backend Supabase aktif.') },\n  async session() { return { signedIn: true, email: null, isGuildMaster: true } },
+  async authenticatePlayer() { throw new Error('Login PIN Instagram hanya tersedia saat backend Supabase aktif.') },
+  async session() { return { signedIn: true, email: null, isGuildMaster: true } },
   async signIn() {},
   async signInWithPassword() {},
   async setPassword() {},
