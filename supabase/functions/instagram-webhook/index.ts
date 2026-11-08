@@ -136,7 +136,7 @@ async function handleCommand(senderId: string, username: string, cmd: Command) {
     log('Creating account')
     const cls = CLASSES[0] // player picks and locks a class in-game
     const { error } = await database.from('player_accounts').insert({
-      instagram: username, display_name: cls, pin, class: cls, class_locked: false, follows: true, xp: 45, gold: 100, inventory: [],
+      instagram: username, display_name: username.slice(0, 24), pin, class: cls, class_locked: false, follows: true, xp: 45, gold: 100, inventory: [],
     })
     if (error) throw new Error(`Account create error: ${error.message}`)
     await database.from('audit_log').insert({ action: 'dm_register', detail: { instagram: username } })

@@ -1,6 +1,6 @@
 // The Guild Master's face for the HUD, cut from their real sprite sheet (same look as in town).
 import { useEffect, useRef } from 'react'
-import { PLAYER_KEY, loadCharacter } from '../character-creator/appearance'
+import { loadCharacter, lookKeyFor } from '../character-creator/appearance'
 import { useGame } from '../game/store'
 import { buildSheet, frameRect } from './sheet'
 import { fromCreator, fromSimple } from './look'
@@ -20,7 +20,7 @@ export function PixelAvatar() {
       x.drawImage(sheet, r.x + 4, r.y + 1, 24, 24, 0, 0, 24, 24) // full hat + head
     }
     draw(buildSheet(DEFAULT))
-    loadCharacter(PLAYER_KEY).then((s) => s && draw(buildSheet(fromCreator(s.appearance)))).catch(() => {})
+    loadCharacter(lookKeyFor(useGame.getState().loggedInstagram)).then((s) => s && draw(buildSheet(fromCreator(s.appearance)))).catch(() => {})
   }, [rev])
   return <canvas ref={ref} width={24} height={24} />
 }

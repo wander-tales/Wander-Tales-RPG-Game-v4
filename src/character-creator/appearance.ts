@@ -86,3 +86,6 @@ export async function listCharacters(): Promise<SavedCharacter[]> {
 }
 /** The Guild Master's look in town. */
 export const PLAYER_KEY = 'player'
+/** Saved look of whoever is playing: each Instagram account gets its own, the GM keeps PLAYER_KEY. */
+export const lookKeyFor = (instagram: string | null | undefined) =>
+  instagram && instagram !== 'demo.player' ? `${PLAYER_KEY}:${instagram}` : PLAYER_KEY
