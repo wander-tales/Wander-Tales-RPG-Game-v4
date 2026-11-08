@@ -1,4 +1,4 @@
-import type { PlayerAccount } from './playerAuthAndQuests'
+import type { ClassQuest, PlayerAccount } from './playerAuthAndQuests'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
@@ -13,7 +13,7 @@ type CloudAccount = {
   xp: number
   gold: number
   inventory: PlayerAccount['inventory']
-  quests?: unknown[]
+  quests?: ClassQuest[]
   completedQuestsCount?: number
   createdAt?: string
 }
@@ -67,6 +67,8 @@ export async function cloudPlayerLogin(instagram: string, pin: string): Promise<
     xp: a.xp,
     gold: a.gold,
     inventory: Array.isArray(a.inventory) ? a.inventory : [],
+    questState: Array.isArray(a.quests) ? a.quests : [],
+    completedQuestsCount: a.completedQuestsCount ?? 0,
     createdAt: a.createdAt ?? new Date().toISOString(),
   }
 }
