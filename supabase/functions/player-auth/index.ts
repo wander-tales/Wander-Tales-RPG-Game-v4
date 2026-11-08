@@ -10,7 +10,7 @@ const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-player-session",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -57,7 +57,9 @@ function newSessionToken(): string {
 }
 
 async function findSession(req: Request) {
-  const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim() ?? "";
+  // The Supabase gateway Authorization header remains the public anon JWT.
+  // The private player session is sent separately in x-player-session.
+  const token = req.headers.get("x-player-session")?.trim() ?? "";
   if (!/^[a-f0-9]{64}$/.test(token)) return null;
   const tokenHash = await sha256(token);
   const { data, error } = await db
@@ -103,6 +105,7 @@ Deno.serve(async (req: Request) => {
       const { data: resident, error: residentError } = await db
         .from("residents")
         .select("id,display_name,instagram")
+        .eq("town_id", "00000000-0000-0000-0000-000000000001")
         .eq("instagram", instagram)
         .maybeSingle();
       if (residentError) throw residentError;
