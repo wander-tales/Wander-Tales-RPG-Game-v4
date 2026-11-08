@@ -265,6 +265,23 @@ export function registerPlayerPin(
   return { ok: true, account: newAcc }
 }
 
+/** Merge accounts loaded from the database into this browser's list (database wins for login data). */
+export function mergePlayerAccounts(remote: PlayerAccount[]): PlayerAccount[] {
+  const list = getPlayerAccounts()
+  const byIg = new Map(list.map((a) => [a.instagram, a]))
+  for (const r of remote) {
+    const local = byIg.get(r.instagram)
+    if (local) Object.assign(local, { ...r, online: local.online })
+    else {
+      const acc = { ...r, online: false }
+      list.push(acc)
+      byIg.set(acc.instagram, acc)
+    }
+  }
+  savePlayerAccounts(list)
+  return list
+}
+
 export function removePlayerAccount(instagramRaw: string) {
   const ig = cleanIg(instagramRaw)
   const list = getPlayerAccounts().filter((a) => a.instagram !== ig)

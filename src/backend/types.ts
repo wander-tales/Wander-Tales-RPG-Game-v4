@@ -1,6 +1,7 @@
 import type { Appearance, Personality } from '../game/residents.mock.ts'
 import type { CommentRow, Entry, GuildClass, RecruitEvent } from '../game/recruitment.ts'
-export type { CommentRow, Entry, GuildClass, RecruitEvent }
+import type { PlayerAccount } from '../game/playerAuthAndQuests.ts'
+export type { CommentRow, Entry, GuildClass, PlayerAccount, RecruitEvent }
 
 export interface GuildMember {
   id: string; residentId: string; displayName: string; rank: number; rankName: string; cls: GuildClass; renown: number; joinedAt: string
@@ -99,6 +100,14 @@ export interface Backend {
   setHome(id: string, home: string | null): Promise<void>
   /** replace the follower list with SHA-256 hashes of usernames */
   setFollowers(hashes: string[]): Promise<number>
+  // player login accounts (Instagram + 6-digit PIN)
+  /** Guild Master: every stored account, PINs included. */
+  listPlayerAccounts(): Promise<PlayerAccount[]>
+  /** Guild Master: insert/update accounts (existing ones keep their game progress). Returns how many were written. */
+  savePlayerAccounts(accounts: PlayerAccount[]): Promise<number>
+  removePlayerAccount(instagram: string): Promise<void>
+  /** Player login with username + PIN. Throws not_registered / wrong_pin / not_following / too_many_attempts. */
+  playerLogin(instagram: string, pin: string): Promise<PlayerAccount>
   // guild (Phase 5)
   listGuildMembers(): Promise<GuildMember[]>
   listEvents(): Promise<RecruitEvent[]>
@@ -142,6 +151,10 @@ const MESSAGES: Record<string, string> = {
   save_too_large: 'The save is too large for the cloud (4 MB limit).',
   invalid_slot: 'There are only 3 cloud save slots.',
   invalid_save: 'The save data is not valid.',
+  not_registered: 'Username ini belum terdaftar di database Guild. Follow & kirim DM "DAFTAR" ke @wandertales.guild untuk mendapatkan PIN.',
+  wrong_pin: 'PIN 6 digit tidak sesuai! Periksa kembali PIN dari DM @wandertales.guild.',
+  empty_follower_list: 'File followers kosong.',
+  invalid_follower_list: 'Daftar followers tidak valid.',
 }
 /** Turn backend error codes into friendly text. */
 export function errorText(e: unknown) {

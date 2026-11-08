@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useGame } from '../game/store'
-import { verifyPlayerLogin, verifyGmLogin } from '../game/playerAuthAndQuests'
+import { findPlayerAccount, upsertPlayerAccount, verifyPlayerLogin, verifyGmLogin, type PlayerAccount } from '../game/playerAuthAndQuests'
 import { backendMode, errorText, getBackend } from '../backend'
 import { cloudPlayerLogin } from '../game/playerCloud'
 
@@ -26,27 +26,53 @@ export function MainMenu() {
   const handlePlayerLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setErrorMsg(null)
-    setBusy(true)
-    try {
-      if (backendMode === 'supabase') {
-        const acc = await cloudPlayerLogin(igUsername, pin)
-        const defaultPlayerName = acc.displayName && acc.displayName !== 'Guild Master' ? acc.displayName : acc.cls
-        loginAsPlayer({ ...acc, displayName: defaultPlayerName })
-      } else {
-        const res = verifyPlayerLogin(igUsername, pin)
-        if (!res.ok || !res.account) {
-          setErrorMsg(res.error ?? 'Gagal login.')
+    let acc: PlayerAccount
+    if (backendMode === 'supabase') {
+      if (!/^\d{6}$/.test(pin.trim())) {
+        setErrorMsg('PIN harus berupa 6 digit angka dari balasan DM @wandertales.guild.')
+        return
+      }
+      setBusy(true)
+      try {
+        // 1) accounts made by the DM bot / GM upload (player_accounts)
+        const b = await getBackend()
+        acc = await b.playerLogin(igUsername, pin.trim())
+        const local = findPlayerAccount(acc.instagram)
+        // keep progress made on this device if it is ahead of the database copy
+        if (local && local.xp > acc.xp) acc = { ...acc, xp: local.xp, gold: local.gold, inventory: local.inventory }
+        upsertPlayerAccount(acc)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (!/not_registered|function|fetch/i.test(msg)) {
+          setErrorMsg(errorText(err))
+          setBusy(false)
           return
         }
-        const acc = res.account
-        const defaultPlayerName = acc.displayName && acc.displayName !== 'Guild Master' ? acc.displayName : acc.cls
-        loginAsPlayer({ ...acc, displayName: defaultPlayerName })
+        try {
+          // 2) approved residents with a cloud profile (player-auth)
+          acc = await cloudPlayerLogin(igUsername, pin.trim())
+        } catch (cloudErr) {
+          // 3) accounts that only exist in this browser
+          const localRes = verifyPlayerLogin(igUsername, pin)
+          if (!localRes.ok || !localRes.account) {
+            setErrorMsg(errorText(/not_registered/.test(msg) ? err : cloudErr))
+            setBusy(false)
+            return
+          }
+          acc = localRes.account
+        }
       }
-    } catch (err) {
-      setErrorMsg(errorText(err))
-    } finally {
       setBusy(false)
+    } else {
+      const res = verifyPlayerLogin(igUsername, pin)
+      if (!res.ok || !res.account) {
+        setErrorMsg(res.error ?? 'Gagal login.')
+        return
+      }
+      acc = res.account
     }
+    const defaultPlayerName = acc.displayName && acc.displayName !== 'Guild Master' ? acc.displayName : acc.cls
+    loginAsPlayer({ ...acc, displayName: defaultPlayerName })
   }
 
   const handleGmLogin = async (e: React.FormEvent) => {
