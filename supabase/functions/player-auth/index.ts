@@ -28,6 +28,9 @@ Deno.serve(async (req) => {
       .eq("instagram", instagram).maybeSingle();
     if (residentError) throw residentError;
     if (!resident) return json({ error: "Username atau PIN salah, atau akun belum disetujui." }, 401);
+    const { data: follows, error: followError } = await admin.rpc("is_follower", { p_instagram: instagram });
+    if (followError) throw followError;
+    if (follows === false) return json({ error: "Akses ditangguhkan karena akun tidak terdeteksi mengikuti @wandertales.guild. Follow kembali dan hubungi Guild Master untuk memperbarui daftar follower." }, 403);
 
     const { data: credential, error: credentialError } = await admin.from("player_pin_credentials")
       .select("pin_hash,pin_expires_at,failed_attempts,locked_until,instagram_scoped_id")
