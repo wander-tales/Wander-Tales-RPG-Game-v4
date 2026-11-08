@@ -373,6 +373,92 @@ export function getPlayerTotalStats(loggedInstagram: string | null, isDemoPlayer
   return { online, offline, total }
 }
 
+const UPLOADED_FOLLOWERS_KEY = 'wt.uploadedFollowers.v1'
+
+export interface UploadedFollowersMeta {
+  uploadedAt: string
+  count: number
+  handles: string[]
+}
+
+export function getUploadedFollowersMeta(): UploadedFollowersMeta | null {
+  try {
+    const raw = localStorage.getItem(UPLOADED_FOLLOWERS_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as UploadedFollowersMeta
+    if (!parsed || typeof parsed.count !== 'number' || !Array.isArray(parsed.handles)) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+export function syncFollowersListWithAccounts(
+  rawHandles: Iterable<string>,
+  autoRegisterNew = true,
+): { totalFollowers: number; newlyCreated: number; updatedExisting: number } {
+  const cleanSet = new Set<string>()
+  for (const h of rawHandles) {
+    const c = cleanIg(h)
+    if (c) cleanSet.add(c)
+  }
+  const handles = [...cleanSet]
+  const meta: UploadedFollowersMeta = {
+    uploadedAt: new Date().toISOString(),
+    count: handles.length,
+    handles,
+  }
+  try {
+    localStorage.setItem(UPLOADED_FOLLOWERS_KEY, JSON.stringify(meta))
+  } catch {
+    /* ignore */
+  }
+
+  const list = getPlayerAccounts()
+  const byIg = new Map<string, PlayerAccount>()
+  for (const acc of list) byIg.set(acc.instagram, acc)
+
+  let newlyCreated = 0
+  let updatedExisting = 0
+
+  // Update follow status on existing accounts
+  for (const acc of list) {
+    const isFollowing = cleanSet.has(acc.instagram)
+    if (acc.follows !== isFollowing) {
+      acc.follows = isFollowing
+      updatedExisting++
+    }
+  }
+
+  // Optionally auto-create 6-digit PIN accounts for uploaded followers not yet in DB
+  if (autoRegisterNew) {
+    handles.forEach((ig, idx) => {
+      if (!byIg.has(ig)) {
+        const cls: GuildClass = CLASSES[idx % CLASSES.length]
+        const newAcc: PlayerAccount = {
+          instagram: ig,
+          displayName: cls,
+          pin: generateRandomPin(),
+          cls,
+          classLocked: false,
+          follows: true,
+          online: false,
+          xp: 45,
+          gold: 100,
+          inventory: starterInventoryForClass(cls),
+          createdAt: new Date().toISOString(),
+        }
+        list.push(newAcc)
+        byIg.set(ig, newAcc)
+        newlyCreated++
+      }
+    })
+  }
+
+  savePlayerAccounts(list)
+  return { totalFollowers: handles.length, newlyCreated, updatedExisting }
+}
+
 // ---------- CLASS-SPECIFIC PROGRESSIVE QUEST SYSTEM ----------
 
 interface ClassQuestBlueprint {

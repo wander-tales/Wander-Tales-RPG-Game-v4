@@ -1,17 +1,21 @@
-import { useEffect, useState } from 'react'
-import { getBackend, type CommunityResident, type Registration } from '../backend'
+import { useEffect, useRef, useState } from 'react'
+import { getBackend, type CommunityResident, type FollowerListInfo, type Registration } from '../backend'
 import { PERSONALITIES, randomAppearance } from '../game/avatar'
 import { applyMembers, community, getVillagePopulation, setFollowerCount, setPlaceholders } from '../game/community'
+import { hashHandle, parseFollowerExport } from '../game/followers'
 import { RESIDENTS, type Appearance, type Personality } from '../game/residents.mock'
 import { CLASSES, type GuildClass } from '../game/recruitment'
 import {
   getPlayerAccounts,
   getPlayerTotalStats,
+  getUploadedFollowersMeta,
   regeneratePlayerPin,
   registerPlayerPin,
   removePlayerAccount,
   savePlayerAccounts,
+  syncFollowersListWithAccounts,
   type PlayerAccount,
+  type UploadedFollowersMeta,
 } from '../game/playerAuthAndQuests'
 import { useGame } from '../game/store'
 import { AvatarEditor, AvatarPreview } from './AvatarEditor'
@@ -29,6 +33,13 @@ export function CommunityPanel({ close }: { close: () => void }) {
   const [members, setMembers] = useState<CommunityResident[]>([])
   const [followerInput, setFollowerInput] = useState(() => String(getVillagePopulation()))
   const [accounts, setAccounts] = useState<PlayerAccount[]>(() => getPlayerAccounts())
+  const [uploadedMeta, setUploadedMeta] = useState<UploadedFollowersMeta | null>(() => getUploadedFollowersMeta())
+  const [backendFollowerInfo, setBackendFollowerInfo] = useState<FollowerListInfo | null>(null)
+  const [autoPinForFollowers, setAutoPinForFollowers] = useState(true)
+  const [uploadingFollowers, setUploadingFollowers] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+
   const [newIg, setNewIg] = useState('')
   const [newDisplayName, setNewDisplayName] = useState('')
   const [newClass, setNewClass] = useState<GuildClass>('Warrior')
@@ -38,12 +49,14 @@ export function CommunityPanel({ close }: { close: () => void }) {
   const refreshBackend = async () => {
     try {
       const b = await getBackend()
-      const [p, m] = await Promise.all([
+      const [p, m, fInfo] = await Promise.all([
         b.listRegistrations('pending').catch(() => []),
         b.listResidents().catch(() => []),
+        b.followerListInfo().catch(() => null),
       ])
       setPendingRegs(p)
       setMembers(m)
+      setBackendFollowerInfo(fInfo)
       applyMembers(m)
       useGame.setState((s) => ({ rev: s.rev + 1 }))
     } catch {
@@ -53,6 +66,7 @@ export function CommunityPanel({ close }: { close: () => void }) {
 
   const refreshAccounts = () => {
     setAccounts(getPlayerAccounts())
+    setUploadedMeta(getUploadedFollowersMeta())
   }
 
   useEffect(() => {
@@ -63,6 +77,65 @@ export function CommunityPanel({ close }: { close: () => void }) {
   const mockCount = RESIDENTS.length - real.length
   const pop = getVillagePopulation()
   const pStats = getPlayerTotalStats(loggedIg, isDemo)
+
+  const handleFollowersFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    setUploadingFollowers(true)
+    try {
+      const combinedHandles = new Set<string>()
+      for (const file of Array.from(files)) {
+        const text = await file.text()
+        const parsed = parseFollowerExport(text)
+        for (const h of parsed) combinedHandles.add(h)
+      }
+
+      if (combinedHandles.size === 0) {
+        g.notify('⚠️ Tidak ditemukan username Instagram di dalam file yang diupload.')
+        return
+      }
+
+      // Sync to backend (Supabase or local) via SHA-256 hashes
+      const hashes = await Promise.all([...combinedHandles].map((h) => hashHandle(h)))
+      try {
+        const b = await getBackend()
+        await b.setFollowers(hashes)
+      } catch {
+        /* local fallback continues */
+      }
+
+      // Sync with Player PIN accounts & village capacity
+      const syncRes = syncFollowersListWithAccounts(combinedHandles, autoPinForFollowers)
+      setFollowerCount(syncRes.totalFollowers)
+      setFollowerInput(String(syncRes.totalFollowers))
+      refreshAccounts()
+      await refreshBackend()
+
+      g.notify(
+        `✅ ${syncRes.totalFollowers} Followers IG berhasil diupload! (${syncRes.newlyCreated} PIN baru dibuat)`,
+      )
+    } catch (err) {
+      g.notify(`⚠️ Gagal membaca file followers: ${(err as Error)?.message ?? String(err)}`)
+    } finally {
+      setUploadingFollowers(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const handleExportPinsCsv = () => {
+    const rows = ['instagram,display_name,class,pin,follows,online']
+    for (const a of accounts) {
+      rows.push(`@${a.instagram},"${a.displayName.replace(/"/g, '""')}",${a.cls},${a.pin},${a.follows},${a.online}`)
+    }
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `wandertales-player-pins-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+    g.notify(`📥 Daftar ${accounts.length} PIN Player berhasil diunduh (.csv)!`)
+  }
 
   const handleRegisterPin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -92,6 +165,20 @@ export function CommunityPanel({ close }: { close: () => void }) {
     g.notify(`✅ @${res.account.instagram} terdaftar! PIN Login 6 Digit: ${res.account.pin}`)
   }
 
+  const filteredAccounts = searchQuery.trim()
+    ? accounts.filter((a) => {
+        const q = searchQuery.trim().replace(/^@/, '').toLowerCase()
+        return (
+          a.instagram.toLowerCase().includes(q) ||
+          a.displayName.toLowerCase().includes(q) ||
+          a.pin.includes(q)
+        )
+      })
+    : accounts
+
+  const activeFollowerCount = uploadedMeta?.count ?? backendFollowerInfo?.count ?? null
+  const activeFollowerDate = uploadedMeta?.uploadedAt ?? backendFollowerInfo?.uploadedAt ?? null
+
   return (
     <div className="panel wide-panel">
       <header>
@@ -103,6 +190,59 @@ export function CommunityPanel({ close }: { close: () => void }) {
         👥 <b>Total Player: {pStats.online} Online / {pStats.offline} Offline</b> (Total {pStats.total} Player) ·{' '}
         🏘️ Warga Desa: <b>{pop}</b> ({real.length} member · {mockCount} NPC).
       </p>
+
+      {/* Upload Daftar Followers Instagram Box */}
+      <div className="card-in" style={{ background: '#f7edd4', marginTop: 6, marginBottom: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+          <b>📤 Upload Daftar Followers Instagram</b>
+          {activeFollowerCount !== null && (
+            <span className="badge ok" style={{ marginBottom: 0 }}>
+              ✓ {activeFollowerCount} Followers Terdaftar
+            </span>
+          )}
+        </div>
+        <p className="note" style={{ marginTop: 4, marginBottom: 6 }}>
+          Upload file hasil download dari Instagram (<b>followers_1.json</b>, <b>followers_1.html</b>, atau <b>.csv / .txt</b>) untuk menyinkronkan daftar followers <b>@{DM_GUILD_HANDLE}</b> ke database.
+        </p>
+
+        <label className="check" style={{ marginBottom: 8, fontSize: 12 }}>
+          <input
+            type="checkbox"
+            checked={autoPinForFollowers}
+            onChange={(e) => setAutoPinForFollowers(e.target.checked)}
+          />
+          <span>Otomatis buatkan akun &amp; PIN 6 Digit untuk semua followers yang diupload</span>
+        </label>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept=".json,.html,.htm,.csv,.txt"
+          style={{ display: 'none' }}
+          onChange={handleFollowersFileUpload}
+        />
+
+        <div className="actions" style={{ marginTop: 4 }}>
+          <button
+            type="button"
+            disabled={uploadingFollowers}
+            style={{ background: '#e0b04a', borderColor: '#3a2414' }}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {uploadingFollowers ? '⏳ Memproses File...' : '📂 Pilih File Followers IG (.json / .html)'}
+          </button>
+          <button type="button" onClick={handleExportPinsCsv} title="Unduh semua username & PIN dalam format CSV">
+            📥 Export CSV PIN
+          </button>
+        </div>
+
+        {activeFollowerDate && (
+          <small style={{ display: 'block', marginTop: 6, color: '#6e5640', fontSize: 11 }}>
+            Terakhir diupload: {new Date(activeFollowerDate).toLocaleString()}
+          </small>
+        )}
+      </div>
 
       <div className="share">
         <small>👥 Atur Kapasitas Warga Desa:</small>
@@ -145,9 +285,9 @@ export function CommunityPanel({ close }: { close: () => void }) {
       {tab === 'pins' && (
         <div>
           <div className="card-in" style={{ background: '#fffaf0' }}>
-            <b>📩 Database Pendaftaran DM (@{DM_GUILD_HANDLE} · Format: DAFTAR)</b>
+            <b>📩 Pendaftaran Manual DM (@{DM_GUILD_HANDLE} · Format: DAFTAR)</b>
             <p className="note" style={{ marginTop: 4 }}>
-              Saat ada follower yang mengirim DM <b>DAFTAR</b> ke Instagram <b>@{DM_GUILD_HANDLE}</b>, masukkan username Instagram mereka di bawah ini untuk membuat <b>PIN 6 Digit acak</b> agar mereka bisa login.
+              Saat ada follower yang mengirim DM <b>DAFTAR</b> ke Instagram <b>@{DM_GUILD_HANDLE}</b>, masukkan username mereka di bawah untuk membuat <b>PIN 6 Digit acak</b>.
             </p>
             <form onSubmit={handleRegisterPin} className="form" style={{ marginTop: 8 }}>
               <input
@@ -159,7 +299,7 @@ export function CommunityPanel({ close }: { close: () => void }) {
                 <label>
                   Nama Karakter (Opsional)
                   <input
-                    placeholder="Otomatis dari IG jika kosong"
+                    placeholder="Sesuai Class jika kosong"
                     value={newDisplayName}
                     onChange={(e) => setNewDisplayName(e.target.value)}
                   />
@@ -190,9 +330,19 @@ export function CommunityPanel({ close }: { close: () => void }) {
             </form>
           </div>
 
-          <h3>Daftar Akun Player di Database ({accounts.length})</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, margin: '10px 0 6px' }}>
+            <h3 style={{ margin: 0 }}>Daftar Akun Player ({filteredAccounts.length}/{accounts.length})</h3>
+            <input
+              type="text"
+              placeholder="🔍 Cari @username / PIN..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ width: 175, padding: '4px 8px', fontSize: 12, border: '2px solid #4a3220', background: '#fffaf0' }}
+            />
+          </div>
+
           <div className="list">
-            {accounts.map((acc) => {
+            {filteredAccounts.map((acc) => {
               const dmReply = `Halo @${acc.instagram}! Pendaftaran DAFTAR kamu di @${DM_GUILD_HANDLE} berhasil. Username Login: @${acc.instagram} | PIN 6 Digit: ${acc.pin}`
               return (
                 <div key={acc.instagram} className="member">
@@ -200,6 +350,9 @@ export function CommunityPanel({ close }: { close: () => void }) {
                     <b>@{acc.instagram}</b>
                     <small>({acc.displayName})</small>
                     <span className="cls">⚔️ {acc.cls}{acc.classLocked ? ' 🔒' : ''}</span>
+                    <span className={`follows ${acc.follows ? '' : 'unknown'}`}>
+                      {acc.follows ? '✓ Follower' : 'Belum Follow'}
+                    </span>
                     <span className={`follows ${acc.online ? '' : 'unknown'}`}>
                       {acc.online ? '🟢 Online' : '⚪ Offline'}
                     </span>
@@ -256,6 +409,9 @@ export function CommunityPanel({ close }: { close: () => void }) {
                 </div>
               )
             })}
+            {filteredAccounts.length === 0 && (
+              <p className="note">Tidak ada akun yang cocok dengan pencarian &ldquo;{searchQuery}&rdquo;.</p>
+            )}
           </div>
         </div>
       )}
