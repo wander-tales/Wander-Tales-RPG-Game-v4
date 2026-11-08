@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useGame } from '../game/store'
-import { verifyPlayerLogin, verifyGmLogin } from '../game/playerAuthAndQuests'
+import { findPlayerAccount, starterInventoryForClass, verifyPlayerLogin, verifyGmLogin } from '../game/playerAuthAndQuests'
 import { backendMode, errorText, getBackend } from '../backend'
 
 export function MainMenu() {
