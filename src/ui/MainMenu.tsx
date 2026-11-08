@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useGame } from '../game/store'
 import { verifyPlayerLogin, verifyGmLogin } from '../game/playerAuthAndQuests'
 import { backendMode, errorText, getBackend } from '../backend'
+import { cloudPlayerLogin } from '../game/playerCloud'
 
 export function MainMenu() {
   const screen = useGame((s) => s.screen)
@@ -22,17 +23,30 @@ export function MainMenu() {
 
   if (screen !== 'menu') return null
 
-  const handlePlayerLogin = (e: React.FormEvent) => {
+  const handlePlayerLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setErrorMsg(null)
-    const res = verifyPlayerLogin(igUsername, pin)
-    if (!res.ok || !res.account) {
-      setErrorMsg(res.error ?? 'Gagal login.')
-      return
+    setBusy(true)
+    try {
+      if (backendMode === 'supabase') {
+        const acc = await cloudPlayerLogin(igUsername, pin)
+        const defaultPlayerName = acc.displayName && acc.displayName !== 'Guild Master' ? acc.displayName : acc.cls
+        loginAsPlayer({ ...acc, displayName: defaultPlayerName })
+      } else {
+        const res = verifyPlayerLogin(igUsername, pin)
+        if (!res.ok || !res.account) {
+          setErrorMsg(res.error ?? 'Gagal login.')
+          return
+        }
+        const acc = res.account
+        const defaultPlayerName = acc.displayName && acc.displayName !== 'Guild Master' ? acc.displayName : acc.cls
+        loginAsPlayer({ ...acc, displayName: defaultPlayerName })
+      }
+    } catch (err) {
+      setErrorMsg(errorText(err))
+    } finally {
+      setBusy(false)
     }
-    const acc = res.account
-    const defaultPlayerName = acc.displayName && acc.displayName !== 'Guild Master' ? acc.displayName : acc.cls
-    loginAsPlayer({ ...acc, displayName: defaultPlayerName })
   }
 
   const handleGmLogin = async (e: React.FormEvent) => {
@@ -114,8 +128,8 @@ export function MainMenu() {
 
             {errorMsg && <div className="login-error">⚠️ {errorMsg}</div>}
 
-            <button type="submit" className="login-submit-btn">
-              ⚔️ Masuk Dunia
+            <button type="submit" className="login-submit-btn" disabled={busy}>
+              {busy ? 'Memverifikasi...' : '⚔️ Masuk Dunia'}
             </button>
 
             <div className="dm-daftar-compact">
