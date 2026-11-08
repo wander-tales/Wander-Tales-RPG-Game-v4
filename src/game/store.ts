@@ -217,8 +217,8 @@ export const useGame = create<GameState>((set, get) => ({
       playerHp: info.maxHp,
       playerGold: account.gold ?? 100,
       playerInventory: account.inventory?.length ? account.inventory : starterInventoryForClass(account.cls),
-      classQuests: buildQuestsForClassAndLevel(account.cls, info.level, 0),
-      completedQuestsCount: 0,
+      classQuests: account.questState?.length ? account.questState : buildQuestsForClassAndLevel(account.cls, info.level, 0),
+      completedQuestsCount: account.completedQuestsCount ?? 0,
       timeScale: 2, // Fast-forward disabled in Player mode
       mode: 'third',
       selection: null,
