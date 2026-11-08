@@ -1,7 +1,7 @@
 // Supabase backend. Uses only the public anon key; every privileged rule is enforced by the
 // SQL functions in supabase/migrations (RLS + SECURITY DEFINER), never by this file.
 import { createClient } from '@supabase/supabase-js'
-import type { Backend, CloudSave, CloudSlotInfo, CloudVersion, CloudWrite, CommunityResident, Entry, GuildMember, RecruitEvent, Registration } from './types'
+import type { Backend, PlayerIdentity, CloudSave, CloudSlotInfo, CloudVersion, CloudWrite, CommunityResident, Entry, GuildMember, RecruitEvent, Registration } from './types'
 
 type Row = Record<string, unknown>
 const toRegistration = (r: Row): Registration => ({
@@ -88,7 +88,7 @@ export function createSupabaseBackend(url: string, anonKey: string): Backend {
     cloudSave: (data, summary, device, baseRev, slot) => rpc<CloudWrite>('cloud_save_write', { p_data: data, p_summary: summary, p_device: device, p_base_rev: baseRev, p_slot: slot }),
     cloudSlots: () => rpc<CloudSlotInfo[]>('cloud_save_slots'),
     cloudHistory: (slot) => rpc<CloudVersion[]>('cloud_save_history', { p_slot: slot }),
-    async session() {
+    async authenticatePlayer(instagram, pin): Promise<PlayerIdentity> {\n      const { data, error } = await sb.functions.invoke('player-auth', { body: { instagram, pin } })\n      if (error) throw new Error(error.message)\n      if (!data?.token_hash || !data?.player) throw new Error(data?.error ?? 'Login pemain gagal.')\n      const { error: verifyError } = await sb.auth.verifyOtp({ token_hash: data.token_hash, type: 'magiclink' })\n      if (verifyError) throw new Error(verifyError.message)\n      return { instagram: data.player.instagram, displayName: data.player.displayName }\n    },\n    async session() {
       const { data } = await sb.auth.getSession()
       const user = data.session?.user
       if (!user || user.is_anonymous) return { signedIn: false, email: null, isGuildMaster: false }
