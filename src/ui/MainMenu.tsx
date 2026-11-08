@@ -37,8 +37,14 @@ export function MainMenu() {
         const b = await getBackend()
         acc = await b.playerLogin(igUsername, pin.trim())
       } catch (err) {
-        setErrorMsg(errorText(err))
-        return
+        // account not in the database yet but made in this browser: let it in locally
+        const msg = err instanceof Error ? err.message : String(err)
+        const localRes = /not_registered|function|fetch/i.test(msg) ? verifyPlayerLogin(igUsername, pin) : null
+        if (!localRes?.ok || !localRes.account) {
+          setErrorMsg(errorText(err))
+          return
+        }
+        acc = localRes.account
       } finally {
         setBusy(false)
       }

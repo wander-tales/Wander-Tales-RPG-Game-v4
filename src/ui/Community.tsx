@@ -26,13 +26,15 @@ type Tab = 'pins' | 'pending' | 'residents' | 'add'
 const DM_GUILD_HANDLE = 'wandertales.guild'
 
 /** Write player accounts (username + PIN) to the database so players can log in from any device. */
-async function pushAccounts(accounts: PlayerAccount[]) {
-  if (!accounts.length) return
+async function pushAccounts(accounts: PlayerAccount[]): Promise<boolean> {
+  if (!accounts.length) return true
   try {
     const b = await getBackend()
     await b.savePlayerAccounts(accounts)
+    return true
   } catch (err) {
     useGame.getState().notify(`⚠️ Akun belum tersimpan ke database: ${errorText(err)}`)
+    return false
   }
 }
 
@@ -71,7 +73,15 @@ export function CommunityPanel({ close }: { close: () => void }) {
       setBackendFollowerInfo(fInfo)
       if (backendMode === 'supabase') {
         const remote = await b.listPlayerAccounts().catch(() => null)
-        if (remote) setAccounts(mergePlayerAccounts(remote))
+        if (remote) {
+          // accounts made in this browser before they were saved to the database: save them now
+          const inDb = new Set(remote.map((a) => a.instagram))
+          const missing = getPlayerAccounts().filter((a) => !inDb.has(a.instagram))
+          if (missing.length && (await pushAccounts(missing))) {
+            useGame.getState().notify(`☁️ ${missing.length} akun player disimpan ke database.`)
+          }
+          setAccounts(mergePlayerAccounts(remote))
+        }
       }
       applyMembers(m)
       useGame.setState((s) => ({ rev: s.rev + 1 }))
