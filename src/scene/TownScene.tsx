@@ -25,7 +25,7 @@ import { findNearby, interact } from '../game/interact'
 import { confirmPlacement, rotatePlacement } from '../game/placement'
 import { roleFor } from '../npc-generator/npcGenerator'
 import { npcAppearance } from '../npc-generator/npcAppearance'
-import { PLAYER_KEY, loadCharacter } from '../character-creator/appearance'
+import { loadCharacter, lookKeyFor } from '../character-creator/appearance'
 import { Animator } from '../pixel/anim'
 import { SHEET, buildSheet, frameRect, type SpriteLook } from '../pixel/sheet'
 import { CLASS_WEAPON, fromCreator, fromSimple } from '../pixel/look'
@@ -189,7 +189,7 @@ function run(host: HTMLDivElement) {
   const refreshMyLook = () => {
     const wpn = CLASS_WEAPON[useGame.getState().playerClass] ?? 'sword'
     me.setLook({ ...GM_LOOK, weapon: wpn })
-    loadCharacter(PLAYER_KEY).then((s) => s && me.setLook(fromCreator(s.appearance, wpn))).catch(() => {})
+    loadCharacter(lookKeyFor(useGame.getState().loggedInstagram)).then((s) => s && me.setLook(fromCreator(s.appearance, wpn))).catch(() => {})
   }
   refreshMyLook()
   const label = (cls: string) => { const el = document.createElement('div'); el.className = cls; el.style.display = 'none'; labelsEl.appendChild(el); return el }

@@ -72,6 +72,9 @@ export function MainMenu() {
       acc = res.account
     }
     const defaultPlayerName = acc.displayName && acc.displayName !== 'Guild Master' ? acc.displayName : acc.cls
+    // clear the form so the next person on this device starts empty
+    setIgUsername('')
+    setPin('')
     loginAsPlayer({ ...acc, displayName: defaultPlayerName })
   }
 

@@ -24,7 +24,7 @@ import { CLASS_WEAPON, fromCreator } from '../pixel/look'
 import { CATALOG, type CatalogAsset, type Channel } from '../threejs/chibiCatalog'
 import { ROLES, generateNpcAppearance } from '../npc-generator/npcGenerator'
 import {
-  EYE_COLORS, HAIR_COLORS, PALETTE, PLAYER_KEY, SKIN_TONES, defaultAppearance, loadCharacter, saveCharacter,
+  EYE_COLORS, HAIR_COLORS, PALETTE, SKIN_TONES, lookKeyFor, defaultAppearance, loadCharacter, saveCharacter,
   type CharacterAppearance, type Slot,
 } from '../character-creator/appearance'
 import { MobileControls } from './MobileControls'
@@ -191,6 +191,7 @@ function ProfilePanel({ close }: { close: () => void }) {
   const playerClass = useGame((s) => s.playerClass)
   const classLocked = useGame((s) => s.classLocked)
   const userRole = useGame((s) => s.userRole)
+  const loggedIg = useGame((s) => s.loggedInstagram)
   const playerXp = useGame((s) => s.playerXp)
   const setPlayerName = useGame((s) => s.setPlayerName)
   const lockPlayerClass = useGame((s) => s.lockPlayerClass)
@@ -209,7 +210,7 @@ function ProfilePanel({ close }: { close: () => void }) {
   }, [playerName, playerClass])
 
   useEffect(() => {
-    loadCharacter(PLAYER_KEY).then((s) => { if (s) setApp(s.appearance) }).catch(() => {})
+    loadCharacter(lookKeyFor(useGame.getState().loggedInstagram)).then((s) => { if (s) setApp(s.appearance) }).catch(() => {})
   }, [])
 
   const { level, currentXp, nextXp, totalXp } = playerLevelInfo(playerXp)
@@ -219,7 +220,7 @@ function ProfilePanel({ close }: { close: () => void }) {
 
   const applyAndSave = async (next: CharacterAppearance) => {
     setApp(next)
-    await saveCharacter(PLAYER_KEY, next)
+    await saveCharacter(lookKeyFor(useGame.getState().loggedInstagram), next)
     useGame.setState((s) => ({ rev: s.rev + 1 }))
   }
 
@@ -268,6 +269,12 @@ function ProfilePanel({ close }: { close: () => void }) {
 
       {/* 1. Nama */}
       <div className="profile-info-card">
+        {loggedIg && loggedIg !== 'demo.player' && (
+          <div className="profile-row">
+            <span className="profile-label">Akun</span>
+            <div className="profile-val"><b>@{loggedIg}</b></div>
+          </div>
+        )}
         <div className="profile-row">
           <span className="profile-label">Nama</span>
           {editingName ? (
@@ -565,7 +572,7 @@ function PlayerInventoryPanel({ close, openWardrobe }: { close: () => void; open
   const [app, setApp] = useState<CharacterAppearance>(defaultAppearance)
 
   useEffect(() => {
-    loadCharacter(PLAYER_KEY).then((s) => { if (s) setApp(s.appearance) }).catch(() => {})
+    loadCharacter(lookKeyFor(useGame.getState().loggedInstagram)).then((s) => { if (s) setApp(s.appearance) }).catch(() => {})
   }, [])
 
   const { level, maxHp } = playerLevelInfo(playerXp)
