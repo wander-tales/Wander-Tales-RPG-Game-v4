@@ -61,6 +61,12 @@ Deno.serve(async (req) => {
       const { error: linkError } = await admin.from("residents").update({ auth_user_id: userId }).eq("id", resident.id).is("auth_user_id", null);
       if (linkError) throw linkError;
     }
+    const { error: profileError } = await admin.from("player_profiles").upsert({
+      user_id: userId,
+      display_name: resident.display_name,
+      role: "player",
+    }, { onConflict: "user_id" });
+    if (profileError) throw profileError;
     const { data: link, error: linkError } = await admin.auth.admin.generateLink({ type: "magiclink", email });
     if (linkError) throw linkError;
     const tokenHash = link.properties?.hashed_token;
