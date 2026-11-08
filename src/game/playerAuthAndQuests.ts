@@ -24,6 +24,8 @@ export interface PlayerAccount {
   gold: number
   inventory: PlayerInventoryItem[]
   createdAt: string
+  questState?: ClassQuest[]
+  completedQuestsCount?: number
 }
 
 export type QuestObjectiveType = 'kill_any' | 'kill_slime' | 'kill_goblin' | 'raid_dungeon' | 'talk_npc' | 'explore_distance'
