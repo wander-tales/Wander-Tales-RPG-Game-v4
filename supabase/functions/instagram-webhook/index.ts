@@ -96,6 +96,7 @@ Deno.serve(async (req: Request) => {
   try { payload = JSON.parse(body); } catch { return new Response("Invalid JSON", { status: 400 }); }
   if (payload.object !== "instagram") return Response.json({ received: true });
 
+  let reservedEventKey: string | null = null;
   try {
     for (const entry of payload.entry ?? []) {
       for (const event of entry.messaging ?? []) {
@@ -107,18 +108,23 @@ Deno.serve(async (req: Request) => {
           const { error } = await db.from("instagram_webhook_events").insert({ event_key: mid });
           if (error?.code === "23505") continue;
           if (error) throw error;
+          reservedEventKey = mid;
         }
         const username = await getUsername(String(event.sender.id));
         if (!username) {
           await sendDm(String(event.sender.id), "Maaf, username Instagram tidak dapat diverifikasi. Coba lagi beberapa saat.");
+          if (reservedEventKey) await db.from("instagram_webhook_events").delete().eq("event_key", reservedEventKey);
+          reservedEventKey = null;
           continue;
         }
         await issuePin(String(event.sender.id), username);
+        reservedEventKey = null;
       }
     }
     return Response.json({ received: true });
   } catch (error) {
     console.error("Instagram webhook processing failed", error);
-    return Response.json({ received: true, processing_error: true }, { status: 200 });
+    if (reservedEventKey) await db.from("instagram_webhook_events").delete().eq("event_key", reservedEventKey);
+    return Response.json({ received: false }, { status: 500 });
   }
 });
