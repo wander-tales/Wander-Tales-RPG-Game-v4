@@ -1,0 +1,6 @@
+{
+  "name": "WanderTales Guild",
+  "description": "A cozy 3D fantasy guild and town life RPG where you customize your adventurer, explore the town, recruit companions, and build your guild chronicle.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
