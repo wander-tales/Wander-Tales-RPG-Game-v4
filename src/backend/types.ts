@@ -72,7 +72,9 @@ export interface CloudSlotInfo extends CloudVersion { slot: number }
 export const CLOUD_SLOTS = 3
 export const CLOUD_HISTORY = 10
 
-export interface PlayerIdentity { instagram: string; displayName: string }\n\nexport interface Backend {
+export interface PlayerIdentity { instagram: string; displayName: string }
+
+export interface Backend {
   mode: 'supabase' | 'local'
   // followers
   register(input: RegistrationInput): Promise<{ id: string; verificationCode: string; status: RegistrationStatus }>
@@ -83,7 +85,8 @@ export interface PlayerIdentity { instagram: string; displayName: string }\n\nex
   isFollower(instagram: string): Promise<boolean | null>
   followerListInfo(): Promise<FollowerListInfo | null>
   // Guild Master
-  authenticatePlayer(instagram: string, pin: string): Promise<PlayerIdentity>\n  session(): Promise<AdminSession>
+  authenticatePlayer(instagram: string, pin: string): Promise<PlayerIdentity>
+  session(): Promise<AdminSession>
   /** Emails a one-time sign-in link. */
   signIn(email: string): Promise<void>
   /** Signs in with a password set earlier with setPassword (no email round trip). */
